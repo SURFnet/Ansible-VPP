@@ -1,0 +1,5 @@
+yq 
+yamllint >= 1.32.0
+ansible-lint >= 6.21.0
+ansible-core >= 2.15.4
+vpp-papi >= 2.0.0

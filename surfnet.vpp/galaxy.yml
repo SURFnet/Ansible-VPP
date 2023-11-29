@@ -1,0 +1,22 @@
+---
+namespace: surfnet
+name: vpp
+version: 1.0.0
+readme: README.md
+authors:
+  - Eyle Brinkhuis (@Ebrink)
+  - Michael Rave (@mchlrv)
+  - Nils Vogels (@WebSpider)
+description: Control VPP using ansible
+license_file: LICENSE
+tags:
+  - vpp
+  - fd.io
+  - vswitch
+  - networking
+dependencies: {}
+repository: https://github.com/SURFnet/Ansible-VPP/
+documentation: todo
+homepage: https://surf.nl
+issues: todo
+build_ignore: []

@@ -1,0 +1,7 @@
+---
+exclude_paths: []
+skip_list: []
+warn_list:
+  - yaml
+  - galaxy[version-incorrect]
+  - galaxy[no-changelog]

@@ -1,0 +1,108 @@
+---
+default:
+  image: ${CI_DEPENDENCY_PROXY_DIRECT_GROUP_IMAGE_PREFIX}/python:3.10
+
+  cache:
+    key: $CI_COMMIT_BRANCH
+    paths:
+      - .cache/pip
+      - venv/
+
+variables:
+  PIP_CACHE_DIR: "$CI_PROJECT_DIR/.cache/pip"
+
+before_script:
+  - apt-get update -q
+  - apt-get install --no-install-recommends -y jq
+  - python3 -m venv venv
+  - source venv/bin/activate
+  - pip3 install -r requirements.txt
+  - ansible-galaxy collection install -r requirements.yaml
+  - python3 --version
+  - pip3 --version
+  - ansible --version
+  - ansible-lint --version
+  - yamllint --version
+
+workflow:
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+
+stages:
+  - build
+  - linters
+  - upload
+  - galaxy
+  - release
+
+prepare:
+  stage: build
+  script:
+    - COLL_VERSION=$(yq '.version' surfnet.vpp/galaxy.yml | sed 's/"//g')
+    - COLL_NAME=$(yq '.name' surfnet.vpp/galaxy.yml | sed s'/"//g')
+    - COLL_NAMESPACE=$(yq '.namespace' surfnet.vpp/galaxy.yml | sed s'/"//g')
+    - echo "COLL_VERSION=$COLL_VERSION" > variables.env
+    - echo "COLL_NAME=$COLL_NAME" >> variables.env
+    - echo "COLL_NAMESPACE=$COLL_NAMESPACE" >> variables.env
+  artifacts:
+    reports:
+      dotenv: variables.env
+
+build:
+  stage: build
+  needs: [prepare]
+  script:
+    # - cat README-GALAXY.md > README.md
+    - ansible-galaxy collection build surfnet.vpp --force
+  artifacts:
+    paths:
+      - $COLL_NAMESPACE-$COLL_NAME-$COLL_VERSION.tar.gz
+
+upload:
+  stage: upload
+  needs: [prepare, build]
+  image: curlimages/curl:latest
+  before_script: []
+  script:
+    - |
+      curl --header "JOB-TOKEN: ${CI_JOB_TOKEN}" --upload-file $COLL_NAMESPACE-$COLL_NAME-$COLL_VERSION.tar.gz  "${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/$COLL_NAMESPACE.$COLL_NAME/$COLL_VERSION/$COLL_NAMESPACE.$COLL_NAME.$COLL_VERSION-${CI_COMMIT_SHORT_SHA}.tar.gz"
+
+yamllint:
+  stage: linters
+  script:
+    - yamllint -c .yamllint .
+
+ansible-lint:
+  stage: linters
+  needs: [prepare, build]
+  script:
+    - ansible-galaxy collection install $COLL_NAMESPACE-$COLL_NAME-$COLL_VERSION.tar.gz
+    - ansible-lint -c .ansible-lint
+
+publish:
+  stage: galaxy
+  needs: [prepare, build, yamllint, ansible-lint]
+  script:
+    # - cat README-GALAXY.md > README.md  # readme property in galaxy.yml is ignored by galaxy website
+    - ansible-galaxy collection build surfnet.vpp --force
+    - echo "Will publish $COLL_NAMESPACE-$COLL_NAME-$COLL_VERSION.tar.gz when I have an API key"
+    # - ansible-galaxy collection publish $COLL_NAMESPACE-$COLL_NAME-$COLL_VERSION.tar.gz --api-key $GALAXY_API_KEY
+  when: manual
+
+gitlab-release:
+  stage: release
+  image: registry.gitlab.com/gitlab-org/release-cli:latest
+  needs: [publish, prepare]
+  before_script: []
+  script:
+    - echo "Create release for $COLL_NAMESPACE-$COLL_NAME-$COLL_VERSION.tar.gz"
+  release:
+    name: $COLL_NAMESPACE.$COLL_NAME $COLL_VERSION
+    description: './CHANGELOG.md'
+    tag_name: $COLL_VERSION
+    ref: $CI_COMMIT_SHA
+    assets:
+      links:
+        - name: $COLL_NAMESPACE.$COLL_NAME
+          url: https://galaxy.ansible.com/$COLL_NAMESPACE/$COLL_NAME
